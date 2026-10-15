@@ -17,6 +17,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/sorolens/sorolens/services/indexer/internal/coordinator"
 	"github.com/sorolens/sorolens/services/indexer/internal/metrics"
+	"github.com/sorolens/sorolens/services/indexer/internal/pgstore"
 	"github.com/sorolens/sorolens/services/indexer/internal/poller"
 	"github.com/sorolens/sorolens/services/indexer/internal/rulesengine"
 	"github.com/sorolens/sorolens/services/indexer/internal/watchdog"
@@ -87,12 +88,19 @@ func main() {
 		rpcClients[network] = c
 	}
 
-	st := &stubStore{}
+	// Postgres: the same schema the API reads (issue #500). A missing or
+	// unreachable database stops the indexer at startup.
+	st, err := pgstore.Connect(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Error("indexer: database unavailable", "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
 	redis := &stubRedis{}
 
-	// Wire watchdog interceptor. The stub store implements no watchdog
+	// Wire watchdog interceptor. pgstore does not implement the watchdog
 	// surface yet, so wdStore stays nil and the interceptor no-ops; the
-	// any-assertion lights up once the real FullStore is wired here.
+	// any-assertion lights up once the store grows those methods.
 	var storeAny any = st
 	var wdStore watchdogStore
 	if ws, ok := storeAny.(watchdogStore); ok {
@@ -113,9 +121,9 @@ func main() {
 
 	p := poller.NewWithRPCClients(rpcClients, st, redis, cfg, log)
 
-	// User-defined alert rules. The stub store does not implement the rule
-	// surface, so this stays inert in local runs; a deployment that wires the
-	// real store gets rule evaluation at the end of every pass.
+	// User-defined alert rules. pgstore does not implement the rule surface
+	// yet, so this stays inert until it does; a store that implements it gets
+	// rule evaluation at the end of every pass.
 	if rs, ok := any(st).(rulesengine.Store); ok {
 		p.SetRuleEvaluator(rulesengine.New(rs, log))
 	}
@@ -327,72 +335,10 @@ func (w *watchdogInterceptor) GetEvents(ctx context.Context, start, end uint32, 
 	return res, nil
 }
 
-// ---- stub adapters (replaced in a future session when apps/api is wired) --
+// ---- stub adapters ---------------------------------------------------------
 
-// stubStore does not implement poller.DiscoveryStore yet, so contract
-// discovery (issue #123) stays off until the real FullStore is wired here,
-// like the watchdog surface above.
-type stubStore struct{}
-
-func (s *stubStore) ListContracts(ctx context.Context, cursor string, limit int) ([]poller.Contract, string, error) {
-	return nil, "", nil
-}
-func (s *stubStore) BatchInsertEvents(ctx context.Context, events []poller.Event) error {
-	return nil
-}
-func (s *stubStore) BatchInsertInvocations(ctx context.Context, invocations []poller.Invocation) error {
-	return nil
-}
-
-// InsertFailedEvent parks an event that exhausted its insert retries in the DLQ
-// (issue #202). The stub drops it; the real store is wired in apps/api.
-func (s *stubStore) InsertFailedEvent(_ context.Context, _ poller.FailedEvent) error {
-	return nil
-}
-func (s *stubStore) GetSyncState(ctx context.Context, contractID string) (poller.SyncState, error) {
-	return poller.SyncState{ContractID: contractID}, nil
-}
-func (s *stubStore) UpsertSyncState(ctx context.Context, state poller.SyncState) error {
-	return nil
-}
-func (s *stubStore) CreateNextMonthPartition(_ context.Context) error { return nil }
-func (s *stubStore) CreateMonthlyPartitionIfNotExists(_ context.Context, _ int, _ int) error {
-	return nil
-}
-func (s *stubStore) GetIndexerCursor(_ context.Context, _ string) (uint32, error) { return 0, nil }
-func (s *stubStore) SetIndexerCursor(_ context.Context, _ string, _ uint32) error { return nil }
-func (s *stubStore) BatchInsertWithCursor(_ context.Context, _ string, _ uint32, _ []poller.Event, _ []poller.Invocation, _ poller.SyncState) error {
-	return nil
-}
-func (s *stubStore) RecentHourlyActivity(ctx context.Context, contractID string, hours int) ([]poller.HourlyActivity, error) {
-	return nil, nil
-}
-func (s *stubStore) InsertAlert(ctx context.Context, a poller.Alert) error { return nil }
-func (s *stubStore) InsertContractUpgrade(_ context.Context, _ poller.ContractUpgrade) error {
-	return nil
-}
-func (s *stubStore) UpdateContractWasmHash(_ context.Context, _ string, _ string) error {
-	return nil
-}
-func (s *stubStore) HasContractWasm(_ context.Context, _ string) (bool, error) {
-	return false, nil
-}
-func (s *stubStore) UpsertContractWasm(_ context.Context, _ string, _ []byte) error {
-	return nil
-}
-func (s *stubStore) ContractHealthInputs(_ context.Context, _ string) (poller.HealthInputs, error) {
-	return poller.HealthInputs{}, nil
-}
-func (s *stubStore) UpsertContractHealthScore(_ context.Context, _ poller.ContractHealthScore) error {
-	return nil
-}
-func (s *stubStore) RecordContractVersion(_ context.Context, _ poller.ContractVersion) error {
-	return nil
-}
-func (s *stubStore) GetLatestContractVersion(_ context.Context, _ string) (poller.ContractVersion, error) {
-	return poller.ContractVersion{}, poller.ErrVersionNotFound
-}
-
+// stubRedis always grants the advisory lock. Redis-backed locking is not
+// wired yet, so run a single indexer per contract set.
 type stubRedis struct{}
 
 func (r *stubRedis) SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error) {

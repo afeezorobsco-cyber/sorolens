@@ -34,3 +34,21 @@ export SOROBAN_RPC_URL_FUTURENET=https://rpc-futurenet.stellar.org
 
 Public nodes keep about 7 days of history, so a newly tracked contract can
 only backfill that far.
+
+## Postgres
+
+| Variable       | Default | Description                                                                                                                                                         |
+| -------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | —       | Required. pgx connection string for the database the API reads, migrated with `apps/api/internal/db/migrations`. The indexer pings it on startup and exits if it is unreachable. |
+
+The indexer writes events, invocations, per-contract sync state, network
+cursors, Wasm upgrades, the Wasm cache, health scores, and anomaly alerts
+through `services/indexer/internal/pgstore`. Every batch insert ignores rows
+that already exist, so re-indexing a ledger window is safe.
+
+The store tests run when `POSTGRES_TEST_URL` points at a migrated database:
+
+```bash
+POSTGRES_TEST_URL=postgres://sorolens:sorolens@localhost:5432/sorolens?sslmode=disable \
+  go test ./services/indexer/internal/pgstore/...
+```

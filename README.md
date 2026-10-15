@@ -67,7 +67,7 @@ The indexer processes contracts concurrently. Set `INDEXER_WORKERS` to tune
 the worker count; it defaults to `GOMAXPROCS`. Each contract is handled by one
 worker at a time, preserving that contract's processing order.
 
-The indexer needs a Soroban RPC endpoint (`SOROBAN_RPC_URL`, or
+The indexer needs `DATABASE_URL` and a Soroban RPC endpoint (`SOROBAN_RPC_URL`, or
 `SOROBAN_RPC_URL_<NETWORK>` per network). See
 [`docs/indexer.md`](docs/indexer.md) for every setting.
 ---
