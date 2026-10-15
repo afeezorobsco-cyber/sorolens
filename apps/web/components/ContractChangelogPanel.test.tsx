@@ -8,8 +8,7 @@ expect.extend(matchers);
 const getContractChangelog = vi.fn();
 
 vi.mock("@/lib/api", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
     ...actual,
     getContractChangelog: (id: string) => getContractChangelog(id),
@@ -101,6 +100,19 @@ describe("ContractChangelogPanel", () => {
       await screen.findByText(/no changelog is available/i)
     ).toBeInTheDocument();
     expect(screen.queryByTestId("changelog-entry")).not.toBeInTheDocument();
+  });
+
+  it("treats a non-array response as unavailable instead of crashing", async () => {
+    getContractChangelog.mockResolvedValue({ id: CONTRACT_ID });
+
+    await renderPanel();
+
+    expect(
+      await screen.findByText("Changelog unavailable.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Subscribe (RSS / Atom)" })
+    ).toBeInTheDocument();
   });
 
   it("reports other errors as unavailable", async () => {
