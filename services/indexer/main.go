@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -74,20 +73,20 @@ func main() {
 		AnomalyMinHistory:    envInt("INDEXER_ANOMALY_MIN_HISTORY", 12),
 	}
 
-	// Wire up real dependencies.
-	// In production, substitute the real RPC client, store, and Redis client here.
-	// See apps/api/internal/soroban and apps/api/internal/store for implementations.
-	clients := make(map[string]poller.RPCClient)
-	for _, network := range []string{"testnet", "mainnet", "futurenet"} {
-		url := os.Getenv("SOROBAN_RPC_URL_" + strings.ToUpper(network))
-		if url == "" {
-			continue
-		}
-		clients[network] = &stubRPC{endpoint: url}
+	// Soroban RPC: one client per configured network (issue #499).
+	clients, err := buildRPCClients(os.Getenv)
+	if err != nil {
+		log.Error("indexer: RPC configuration", "err", err)
+		os.Exit(1)
 	}
-	if len(clients) == 0 {
-		clients[""] = &stubRPC{}
+	for network, c := range clients {
+		log.Info("indexer: soroban rpc configured", "network", networkLabel(network), "endpoint", c.Endpoint())
 	}
+	rpcClients := make(map[string]poller.RPCClient, len(clients))
+	for network, c := range clients {
+		rpcClients[network] = c
+	}
+
 	st := &stubStore{}
 	redis := &stubRedis{}
 
@@ -102,8 +101,8 @@ func main() {
 	watchdogEnabled := os.Getenv("WATCHDOG_ENABLED") == "true"
 	watchdogContractID := os.Getenv("WATCHDOG_CONTRACT_ID")
 
-	for k, c := range clients {
-		clients[k] = &watchdogInterceptor{
+	for k, c := range rpcClients {
+		rpcClients[k] = &watchdogInterceptor{
 			RPCClient: c,
 			store:     wdStore,
 			enabled:   watchdogEnabled,
@@ -112,7 +111,7 @@ func main() {
 		}
 	}
 
-	p := poller.NewWithRPCClients(clients, st, redis, cfg, log)
+	p := poller.NewWithRPCClients(rpcClients, st, redis, cfg, log)
 
 	// User-defined alert rules. The stub store does not implement the rule
 	// surface, so this stays inert in local runs; a deployment that wires the
@@ -209,7 +208,7 @@ func main() {
 			// The poller is wrapped so it only ever sees the contracts this
 			// worker's shards cover; every other store call passes through.
 			scoped := newScopedStore(st)
-			wp := poller.NewWithRPCClients(clients, scoped, redis, cfg, log)
+			wp := poller.NewWithRPCClients(rpcClients, scoped, redis, cfg, log)
 			wp.SetMetrics(recorder)
 			run := func(passCtx context.Context, contractIDs []string) error {
 				scoped.SetScope(contractIDs)
@@ -329,45 +328,6 @@ func (w *watchdogInterceptor) GetEvents(ctx context.Context, start, end uint32, 
 }
 
 // ---- stub adapters (replaced in a future session when apps/api is wired) --
-
-type stubRPC struct {
-	endpoint string
-}
-
-func (s *stubRPC) GetLatestLedger(ctx context.Context) (*poller.LatestLedger, error) {
-	if s.endpoint == "" {
-		return nil, fmt.Errorf("stub: RPC not wired; set up apps/api soroban.Client")
-	}
-	return &poller.LatestLedger{Sequence: 1, ProtocolVersion: 22}, nil
-}
-func (s *stubRPC) GetEvents(ctx context.Context, start, end uint32, filters []poller.EventFilter) (*poller.GetEventsResult, error) {
-	if s.endpoint == "" {
-		return nil, fmt.Errorf("stub: RPC not wired")
-	}
-	return &poller.GetEventsResult{}, nil
-}
-func (s *stubRPC) GetTransaction(ctx context.Context, hash string) (*poller.TransactionResult, error) {
-	if s.endpoint == "" {
-		return nil, fmt.Errorf("stub: RPC not wired")
-	}
-	return &poller.TransactionResult{}, nil
-}
-func (s *stubRPC) GetLedgerEntries(ctx context.Context, keys []string) (*poller.GetLedgerEntriesResult, error) {
-	if s.endpoint == "" {
-		return nil, fmt.Errorf("stub: RPC not wired")
-	}
-	return &poller.GetLedgerEntriesResult{}, nil
-}
-func (s *stubRPC) GetContractWasmHash(_ context.Context, _ string) (string, error) {
-	return "", nil
-}
-
-func (s *stubRPC) GetTransactions(ctx context.Context, startLedger uint32, cursor string, limit int) (*poller.GetTransactionsResult, error) {
-	if s.endpoint == "" {
-		return nil, fmt.Errorf("stub: RPC not wired")
-	}
-	return &poller.GetTransactionsResult{}, nil
-}
 
 // stubStore does not implement poller.DiscoveryStore yet, so contract
 // discovery (issue #123) stays off until the real FullStore is wired here,

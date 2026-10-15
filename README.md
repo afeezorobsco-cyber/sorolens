@@ -66,6 +66,10 @@ The dashboard is at `http://localhost:3000` after `pnpm dev` in `apps/web`.
 The indexer processes contracts concurrently. Set `INDEXER_WORKERS` to tune
 the worker count; it defaults to `GOMAXPROCS`. Each contract is handled by one
 worker at a time, preserving that contract's processing order.
+
+The indexer needs a Soroban RPC endpoint (`SOROBAN_RPC_URL`, or
+`SOROBAN_RPC_URL_<NETWORK>` per network). See
+[`docs/indexer.md`](docs/indexer.md) for every setting.
 ---
 
 ## How to contribute
