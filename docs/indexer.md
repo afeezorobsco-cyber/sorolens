@@ -37,8 +37,8 @@ only backfill that far.
 
 ## Postgres
 
-| Variable       | Default | Description                                                                                                                                                         |
-| -------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable       | Default | Description                                                                                                                                                                      |
+| -------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL` | —       | Required. pgx connection string for the database the API reads, migrated with `apps/api/internal/db/migrations`. The indexer pings it on startup and exits if it is unreachable. |
 
 The indexer writes events, invocations, per-contract sync state, network
