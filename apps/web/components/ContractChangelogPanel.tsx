@@ -35,7 +35,13 @@ export function ContractChangelogPanel({
     setState({ status: "loading" });
     getContractChangelog(contractId)
       .then((entries) => {
-        if (!cancelled) setState({ status: "ready", entries: entries ?? [] });
+        if (cancelled) return;
+        // Guard the shape so an unexpected body can never crash the page.
+        if (!Array.isArray(entries)) {
+          setState({ status: "error", message: "Changelog unavailable." });
+          return;
+        }
+        setState({ status: "ready", entries });
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -59,10 +65,7 @@ export function ContractChangelogPanel({
   return (
     <div className="space-y-4">
       {state.status === "loading" && (
-        <p
-          className="text-sm text-[var(--color-text-secondary)]"
-          role="status"
-        >
+        <p className="text-sm text-[var(--color-text-secondary)]" role="status">
           Loading changelog…
         </p>
       )}
