@@ -5,8 +5,11 @@
  * the monorepo, not in separate sorolens-cli / sorolens-sdk repositories.
  */
 
+import * as matchers from "@testing-library/jest-dom/matchers";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+expect.extend(matchers);
 
 vi.mock("next/link", () => ({
   default: ({
